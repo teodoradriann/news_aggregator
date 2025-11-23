@@ -3,48 +3,31 @@ package org.newsaggregator;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 public class Main {
-    private static HashMap<String, Boolean> readConstrainsAndPopulate(String path) {
-        HashMap<String, Boolean> map = new HashMap<>();
-
-        try(BufferedReader bufferedReader = new BufferedReader(new FileReader(path))) {
-            // ignor numarul N
-            bufferedReader.readLine();
-
-            String line = bufferedReader.readLine();
-            while (line != null) {
-                map.put(line.trim(), true);
-                line = bufferedReader.readLine();
-            }
-        } catch (FileNotFoundException e) {
-            System.out.println("File " + path + " not found");
-            return null;
-        } catch (IOException e) {
-            return null;
-        }
-
-        return map;
-    }
-    private static List<String> readLinesFromFile(String path) {
-        List<String> lines = new ArrayList<>();
+    private static <T> T loadFromFile(String path, Supplier<T> factory, BiConsumer<T, String> adder) {
+        T collection = factory.get();
 
         try (BufferedReader br = new BufferedReader(new FileReader(path))) {
             br.readLine();
 
             String line;
             while ((line = br.readLine()) != null) {
-                if (!line.trim().isEmpty()) {
-                    lines.add(line.trim());
+                String trimmedLine = line.trim();
+
+                if (!trimmedLine.isEmpty()) {
+                    adder.accept(collection, trimmedLine);
                 }
             }
         } catch (IOException e) {
-            System.err.println("Eroare la citirea fisierului: " + path);
+            System.err.println("Eroare la citirea: " + path);
             e.printStackTrace();
             return null;
         }
 
-        return lines;
+        return collection;
     }
 
     public static void main(String[] args) {
@@ -65,27 +48,39 @@ public class Main {
         String pathToArticles = args[1];
         String pathToAdditionalFile = args[2];
 
-        List<String> jsonPaths = readLinesFromFile(pathToArticles);
-        if (jsonPaths == null) {
-            return;
-        }
+        ConcurrentLinkedQueue<String> fileQueue = loadFromFile(
+                pathToArticles,
+                ConcurrentLinkedQueue::new,
+                ConcurrentLinkedQueue::add
+        );
 
-        ConcurrentLinkedQueue<String> fileQueue = new ConcurrentLinkedQueue<>(jsonPaths);
+        if (fileQueue == null) return;
 
-        List<String> configPaths = readLinesFromFile(pathToAdditionalFile);
+        List<String> configPaths = loadFromFile(
+                pathToAdditionalFile,
+                ArrayList::new,
+                List::add
+        );
 
-        if (configPaths == null) {
-            return;
-        }
+        if (configPaths == null || configPaths.size() < 3) return;
 
-        if (configPaths.size() < 3) {
-            System.out.println("Fisierul de config nu contine toate cele 3 cai!");
-            return;
-        }
+        Map<String, Boolean> languagesMap = loadFromFile(
+                configPaths.get(0),
+                HashMap::new,
+                (map, line) -> map.put(line, true)
+        );
 
-        Map<String, Boolean> languagesMap = readConstrainsAndPopulate(configPaths.get(0));
-        Map<String, Boolean> categoriesMap = readConstrainsAndPopulate(configPaths.get(1));
-        Map<String, Boolean> englishWordsMap = readConstrainsAndPopulate(configPaths.get(2));
+        Map<String, Boolean> categoriesMap = loadFromFile(
+                configPaths.get(1),
+                HashMap::new,
+                (map, line) -> map.put(line, true)
+        );
+
+        Map<String, Boolean> englishWordsMap = loadFromFile(
+                configPaths.get(2),
+                HashMap::new,
+                (map, line) -> map.put(line, true)
+        );
 
         if (languagesMap == null || categoriesMap == null || englishWordsMap == null) {
             System.out.println("Unul sau mai multe fisiere de configurare nu au putut fi citite.");
@@ -97,6 +92,11 @@ public class Main {
         Map<String, Boolean> englishWords = Collections.unmodifiableMap(englishWordsMap);
 
         System.out.println("All read.");
+
+        while (!fileQueue.isEmpty()) {
+            System.out.println(fileQueue.peek());
+            fileQueue.poll();
+        }
 
         NewsAggregator news = new NewsAggregator(numberOfThreads, fileQueue, permittedLanguages, interestCategories, englishWords);
     }
