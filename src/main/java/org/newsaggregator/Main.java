@@ -93,11 +93,8 @@ public class Main {
 
         System.out.println("All read.");
 
-        while (!fileQueue.isEmpty()) {
-            System.out.println(fileQueue.peek());
-            fileQueue.poll();
-        }
-
         NewsAggregator news = new NewsAggregator(numberOfThreads, fileQueue, permittedLanguages, interestCategories, englishWords);
+        news.startThreads();
+        System.out.println(news.getReadArticles());
     }
 }
