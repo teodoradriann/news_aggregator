@@ -60,6 +60,10 @@ public class Main {
         String pathToArticles = args[1];
         String pathToAdditionalFile = args[2];
 
+        System.out.println("NUMBER OF THREADS: " + numberOfThreads);
+        System.out.println("ARTICLES PATH: " + pathToArticles);
+        System.out.println("ADDITIONAL INFO PATH: " + pathToAdditionalFile);
+
         ConcurrentLinkedQueue<String> fileQueue = loadFromFile(
             pathToArticles,
             ConcurrentLinkedQueue::new,

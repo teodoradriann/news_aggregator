@@ -84,6 +84,60 @@ public class NewsAggregator {
             this.id = id;
         }
 
+        private void readArticles(JsonNode root) {
+            Article article;
+            if (root.isArray()) {
+                for (JsonNode articleNode : root) {
+                    String uuid = articleNode.get("uuid").asText();
+                    String title = articleNode.get("title").asText();
+
+                    boolean okTitle = false;
+                    boolean okUUID = false;
+
+                    List<String> listCategories = new ArrayList<>();
+                    JsonNode catNode = articleNode.get("categories");
+
+                    if (catNode != null && catNode.isArray()) {
+                        for (JsonNode objNode : catNode) {
+                            listCategories.add(objNode.asText());
+                        }
+                    }
+
+                    article = new Article(
+                            uuid,
+                            title,
+                            articleNode.get("author").asText(),
+                            articleNode.get("url").asText(),
+                            articleNode.get("text").asText(),
+                            articleNode.get("published").asText(),
+                            articleNode.get("language").asText(),
+                            listCategories
+                    );
+
+                    // daca deja le-am vazut nu are rost sa le mai adaug in articles.
+                    // dar o sa le incrementez valoarea la 2
+                    if (seenTitle.putIfAbsent(title, 1) != null) {
+                        seenTitle.replace(title, 2);
+                    } else {
+                        okTitle = true;
+                    }
+
+                    if (seenUUID.putIfAbsent(uuid, 1) != null) {
+                        seenUUID.replace(uuid, 2);
+                    } else {
+                        okUUID = true;
+                    }
+
+
+                    if (okTitle && okUUID) {
+                        articles.add(article);
+                    }
+
+                    readArticles.incrementAndGet();
+                }
+            }
+        }
+
         @Override
         public void run() {
             String path;
@@ -91,62 +145,15 @@ public class NewsAggregator {
             while ((path = fileQueue.poll()) != null) {
                 try {
                     JsonNode rootNode = objMapper.readTree(new File(path));
-                    if (rootNode.isArray()) {
-                        for (JsonNode articleNode : rootNode) {
-                            String uuid = articleNode.get("uuid").asText();
-                            String title = articleNode.get("title").asText();
-
-                            boolean okTitle = false;
-                            boolean okUUID = false;
-
-                            List<String> listCategories = new ArrayList<>();
-                            JsonNode catNode = articleNode.get("categories");
-
-                            if (catNode != null && catNode.isArray()) {
-                                for (JsonNode objNode : catNode) {
-                                    listCategories.add(objNode.asText());
-                                }
-                            }
-
-                            article = new Article(
-                                    uuid,
-                                    title,
-                                    articleNode.get("author").asText(),
-                                    articleNode.get("url").asText(),
-                                    articleNode.get("text").asText(),
-                                    articleNode.get("published").asText(),
-                                    articleNode.get("language").asText(),
-                                    listCategories
-                            );
-
-                            // daca deja le-am vazut nu are rost sa le mai adaug in articles.
-                            // dar o sa le incrementez valoarea la 2
-                            if (seenTitle.putIfAbsent(title, 1) != null) {
-                                seenTitle.replace(title, 2);
-                            } else {
-                                okTitle = true;
-                            }
-
-                            if (seenUUID.putIfAbsent(uuid, 1) != null) {
-                                seenUUID.replace(uuid, 2);
-                            } else {
-                                okUUID = true;
-                            }
-
-
-                            if (okTitle && okUUID) {
-                                articles.add(article);
-                            }
-
-                            readArticles.incrementAndGet();
-                        }
-                    }
+                    readArticles(rootNode);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
 
             }
 
+            // astept ca toate threadurile sa fi terminat de citit articolele pentru ca mai apoi
+            // sa incep filtrarea lor
             try {
                 barrier.await();
             } catch (InterruptedException | BrokenBarrierException e) {
