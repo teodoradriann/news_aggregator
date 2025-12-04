@@ -3,6 +3,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.*;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,14 +53,18 @@ public class NewsAggregator {
         return uniqueArticles.size();
     }
 
-    private AtomicInteger readArticles = new AtomicInteger(0);
+    private final AtomicInteger readArticles = new AtomicInteger(0);
 
-    ConcurrentHashMap<String, Integer> seenUUID = new ConcurrentHashMap<>();
-    ConcurrentHashMap<String, Integer> seenTitle = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> seenUUID = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> seenTitle = new ConcurrentHashMap<>();
 
     public final List<Article> uniqueArticles = Collections.synchronizedList(new ArrayList<>());
 
-    public ConcurrentLinkedQueue<Article> articles = new ConcurrentLinkedQueue<>();
+    // private final ConcurrentLinkedQueue<Article> uniqueArticles = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Article> articles = new ConcurrentLinkedQueue<>();
+
+    private final ConcurrentHashMap<String, List<String>> organizedCategories = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, List<String>> organizedLanguages = new ConcurrentHashMap<>();
 
 
     void startThreads() {
@@ -94,7 +99,7 @@ public class NewsAggregator {
                     boolean okTitle = false;
                     boolean okUUID = false;
 
-                    List<String> listCategories = new ArrayList<>();
+                    Set<String> listCategories = new HashSet<>();
                     JsonNode catNode = articleNode.get("categories");
 
                     if (catNode != null && catNode.isArray()) {
@@ -138,6 +143,85 @@ public class NewsAggregator {
             }
         }
 
+        private void waitAtBarrier() {
+            try {
+                barrier.await();
+            } catch (InterruptedException | BrokenBarrierException e) {
+                e.printStackTrace();
+                return;
+            }
+        }
+
+        // procesarea articolelor in paralel
+        private void process(int id) {
+            int size = uniqueArticles.size();
+            int N = numberOfThreads;
+
+            int start = size * id / N;
+            int end = size * (id + 1) / N;
+            end = Math.min(end, size);
+
+            for (int i = start; i < end; i++) {
+                Article article = uniqueArticles.get(i);
+                String UUID = article.getUuid();
+
+                if (UUID.equals("3d86792936ddca8764bcce85d6c618ad646c4c69")) {
+                    System.out.println(article);
+                }
+
+                // procesez categoriile
+                for (String category: article.getCategories()) {
+                    if (interestCategories.get(category).equals(true)) {
+                        List<String> uuidList = organizedCategories.computeIfAbsent(
+                                category,
+                                k -> Collections.synchronizedList(new ArrayList<>())
+                        );
+                        uuidList.add(UUID);
+                    }
+                }
+
+                // procesez limbile
+                String language = article.getLanguage();
+                List<String> uuidList = organizedLanguages.computeIfAbsent(
+                        language,
+                        k -> Collections.synchronizedList(new ArrayList<>())
+                );
+                uuidList.add(UUID);
+            }
+        }
+
+        String parseCategory(String category) {
+            return category.replace(",", "").trim().replace(" ", "_");
+        }
+
+        private void generateOutputFromDictionary(ConcurrentHashMap<String, List<String>> map) {
+            if (id == 0) {
+                // generez pt categorii
+                for (Map.Entry<String, List<String>> entry: map.entrySet()) {
+                    String categoryName = parseCategory(entry.getKey());
+                    categoryName += ".txt";
+                    try {
+                        File newFile = new File(categoryName);
+                        if (newFile.createNewFile()) {
+                            System.out.println("File created: " + newFile.getName());
+                        } else {
+                            System.out.println("File already exists.");
+                        }
+                        List<String> uuidList = entry.getValue();
+                        Collections.sort(uuidList);
+
+                        try (PrintWriter writer = new PrintWriter(newFile)) {
+                            for (String uuid : uuidList) {
+                                writer.println(uuid);
+                            }
+                        } } catch (IOException e) {
+                            e.printStackTrace();
+                    }
+                }
+            }
+        }
+
+
         @Override
         public void run() {
             String path;
@@ -154,12 +238,7 @@ public class NewsAggregator {
 
             // astept ca toate threadurile sa fi terminat de citit articolele pentru ca mai apoi
             // sa incep filtrarea lor
-            try {
-                barrier.await();
-            } catch (InterruptedException | BrokenBarrierException e) {
-                e.printStackTrace();
-                return;
-            }
+            waitAtBarrier();
 
             while ((article = articles.poll()) != null) {
                 boolean uniqueness = (seenUUID.get(article.getUuid()) == 1 && seenTitle.get(article.getTitle()) == 1);
@@ -168,6 +247,14 @@ public class NewsAggregator {
                     uniqueArticles.add(article);
                 }
             }
+
+            waitAtBarrier();
+            // trec prin articole si incep sa le sortez si sa le adaug in maps
+
+            process(id);
+            waitAtBarrier();
+            generateOutputFromDictionary(organizedCategories);
+            generateOutputFromDictionary(organizedLanguages);
         }
     }
 }

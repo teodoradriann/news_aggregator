@@ -6,6 +6,16 @@ import java.util.function.Supplier;
 
 public class Main {
 
+    private static void printConfigurationMap(String title, Map<String, Boolean> map) {
+        System.out.println("--- " + title.toUpperCase() + " (" + map.size() + " entries) ---");
+
+        int count = 0;
+        for (String key : map.keySet()) {
+            System.out.println("  [" + (++count) + "] " + key);
+        }
+        System.out.println("---------------------------------------------");
+    }
+
     private static <T> T loadFromFile(
         String path,
         Supplier<T> factory,
@@ -15,18 +25,20 @@ public class Main {
 
         try (BufferedReader br = new BufferedReader(new FileReader(path))) {
             br.readLine();
-
             String line;
             while ((line = br.readLine()) != null) {
                 String trimmedLine = line.trim();
+                System.out.println(trimmedLine);
 
                 String fileName = new File(trimmedLine).getName();
                 String fullPath;
 
-                if (fileName.endsWith(".json")) {
+                if (trimmedLine.endsWith(".json")) {
                     fullPath = "../checker/input/articles/" + fileName;
-                } else {
+                } else if (trimmedLine.endsWith(".txt")) {
                     fullPath = "../checker/input/files/" + fileName;
+                } else {
+                    fullPath = trimmedLine;
                 }
 
                 if (!trimmedLine.isEmpty()) {
@@ -80,6 +92,9 @@ public class Main {
 
         if (configPaths == null || configPaths.size() < 3) return;
 
+        System.out.println("AICI" + configPaths.get(0));
+
+
         Map<String, Boolean> languagesMap = loadFromFile(
             configPaths.get(0),
             HashMap::new,
@@ -121,6 +136,12 @@ public class Main {
 
         System.out.println("All read.");
 
+
+//        printConfigurationMap("Permitted Languages", permittedLanguages);
+//        printConfigurationMap("Interest Categories", interestCategories);
+//        printConfigurationMap("English Words", englishWords);
+
+
         NewsAggregator news = new NewsAggregator(
             numberOfThreads,
             fileQueue,
@@ -128,6 +149,7 @@ public class Main {
             interestCategories,
             englishWords
         );
+
         news.startThreads();
         System.out.println("TOTAL ARTICLES: " + news.getReadArticles());
         System.out.println("UNIQUE ARTICLES: " + news.getNumberOfUniqueArticles());

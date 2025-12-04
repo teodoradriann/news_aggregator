@@ -1,5 +1,6 @@
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public class Article {
 
@@ -10,7 +11,7 @@ public class Article {
     private String text;
     private String published;
     private String language;
-    private List<String> categories;
+    private Set<String> categories;
 
     public Article(
         String uuid,
@@ -20,7 +21,7 @@ public class Article {
         String text,
         String published,
         String language,
-        List<String> categories
+        Set<String> categories
     ) {
         this.uuid = uuid;
         this.title = title;
@@ -87,4 +88,21 @@ public class Article {
     public void setLanguage(String language) {
         this.language = language;
     }
+
+    public Set<String> getCategories() { return categories; }
+
+    @Override
+    public String toString() {
+        return "Article {" +
+                "\n  uuid='" + uuid + '\'' +
+                ",\n  title='" + title + '\'' +
+                ",\n  author='" + author + '\'' +
+                ",\n  url='" + url + '\'' +
+                ",\n  published='" + published + '\'' +
+                ",\n  language='" + language + '\'' +
+                ",\n  categories=" + categories +
+                ",\n  text='" + (text != null && text.length() > 50 ? text.substring(0, 50) + "..." : text) + '\'' +
+                "\n}";
+    }
+
 }
