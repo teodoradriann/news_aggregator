@@ -12,15 +12,13 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class NewsAggregator {
-
     int numberOfThreads;
-    int numberOfJSONFiles;
     private final List<Thread> threads;
     private final ConcurrentLinkedQueue<String> fileQueue;
-    private Map<String, Boolean> permittedLanguages;
-    private Map<String, Boolean> interestCategories;
-    private Map<String, Boolean> englishWords;
-    private CyclicBarrier barrier;
+    private final Map<String, Boolean> permittedLanguages;
+    private final Map<String, Boolean> interestCategories;
+    private final Map<String, Boolean> englishWords;
+    private final CyclicBarrier barrier;
     Article mostRecentArticle;
 
     ObjectMapper objMapper = new ObjectMapper();
@@ -61,13 +59,20 @@ public class NewsAggregator {
 
     public final List<Article> uniqueArticles = Collections.synchronizedList(new ArrayList<>());
 
-    // private final ConcurrentLinkedQueue<Article> uniqueArticles = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<Article> articles = new ConcurrentLinkedQueue<>();
 
     private final ConcurrentHashMap<String, List<String>> organizedCategories = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, List<String>> organizedLanguages = new ConcurrentHashMap<>();
 
     private final ConcurrentHashMap<String, AtomicInteger> englishWordsCount = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> authors = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> languages = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> categories = new ConcurrentHashMap<>();
+
+    private Map.Entry<String, AtomicInteger> topEnglishWord;
+    private Map.Entry<String, AtomicInteger> bestAuthor;
+    private Map.Entry<String, AtomicInteger> topLanguage;
+    private Map.Entry<String, AtomicInteger> topCategory;
 
 
     void startThreads() {
@@ -85,7 +90,6 @@ public class NewsAggregator {
     }
 
     private class Task extends Thread {
-
         int id;
 
         public Task(int id) {
@@ -170,9 +174,16 @@ public class NewsAggregator {
 
                 // procesez categoriile
                 for (String category: article.getCategories()) {
+                    String parsed_category = parseCategory(category);
+
+                    categories.computeIfAbsent(
+                            parsed_category,
+                            k -> new AtomicInteger(0)
+                    ).incrementAndGet();
+
                     if (interestCategories.containsKey(category)) {
                         List<String> uuidList = organizedCategories.computeIfAbsent(
-                                category,
+                                parsed_category,
                                 k -> Collections.synchronizedList(new ArrayList<>())
                         );
                         uuidList.add(UUID);
@@ -207,6 +218,18 @@ public class NewsAggregator {
                         }
                     }
                 }
+
+                // numar numarul de aparitii ale unui autor
+                authors.computeIfAbsent(
+                        article.getAuthor(),
+                        k -> new AtomicInteger(0)
+                ).incrementAndGet();
+
+                // numar numarul de limbi
+                languages.computeIfAbsent(
+                        article.getLanguage(),
+                        k -> new AtomicInteger(0)
+                ).incrementAndGet();
             }
         }
 
@@ -225,7 +248,7 @@ public class NewsAggregator {
             for (int i = start; i < end; i++) {
                 String key = keys.get(i);
                 List<String> uuidList = map.get(key);
-                String fileName = parseCategory(key) + ".txt";
+                String fileName = key + ".txt";
                 Collections.sort(uuidList);
                 try {
                     File newFile = new File(fileName);
@@ -244,15 +267,16 @@ public class NewsAggregator {
             List<Article> allArticles = new ArrayList<>(uniqueArticles);
             Collections.sort(allArticles);
             // obtin cel mai recent articol
-            int last_article_index = allArticles.size() - 1;
-            while (last_article_index >= 1 && allArticles.get(last_article_index).getPublished().equals(
-                    allArticles.get(last_article_index - 1).getPublished())) {
-                last_article_index--;
-            }
-
-            if (last_article_index >= 0) {
-                mostRecentArticle = allArticles.get(last_article_index);
-            }
+//            int last_article_index = allArticles.size() - 1;
+//            while (last_article_index >= 1 && allArticles.get(last_article_index).getPublished().equals(
+//                    allArticles.get(last_article_index - 1).getPublished())) {
+//                last_article_index--;
+//            }
+//
+//            if (last_article_index >= 0) {
+//                mostRecentArticle = allArticles.get(last_article_index);
+//            }
+            mostRecentArticle = allArticles.getFirst();
 
             try {
                 File file = new File("all_articles.txt");
@@ -266,20 +290,27 @@ public class NewsAggregator {
             }
         }
 
+        private int compareEntries(Map.Entry<String, AtomicInteger> entryA, Map.Entry<String, AtomicInteger> entryB) {
+            int count1 = entryA.getValue().get();
+            int count2 = entryB.getValue().get();
+
+            if (count1 != count2) {
+                return Integer.compare(count2, count1);
+            }
+
+            return entryA.getKey().compareTo(entryB.getKey());
+        }
+
+
         private void generateWordCounterReport() {
             String fileName = "keywords_count.txt";
 
             List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(englishWordsCount.entrySet());
-            Collections.sort(sortedList, (entryA, entryB) -> {
-                int count1 = entryA.getValue().get();
-                int count2 = entryB.getValue().get();
+            sortedList.sort(this::compareEntries);
 
-                if (count1 != count2) {
-                    return Integer.compare(count2, count1);
-                }
-
-                return entryA.getKey().compareTo(entryB.getKey());
-            });
+            if (!sortedList.isEmpty()) {
+                topEnglishWord = sortedList.getFirst();
+            }
 
             try {
                 File file = new File(fileName);
@@ -287,6 +318,54 @@ public class NewsAggregator {
                     for (Map.Entry<String, AtomicInteger> entry : sortedList) {
                         writer.println(entry.getKey() + " " + entry.getValue().get());
                     }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        private void computeBestAuthor() {
+            List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(authors.entrySet());
+            sortedList.sort(this::compareEntries);
+            if (!sortedList.isEmpty()) {
+                bestAuthor = sortedList.getFirst();
+            }
+        }
+
+        private void computeTopLanguage() {
+            List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(languages.entrySet());
+            sortedList.sort(this::compareEntries);
+            if (!sortedList.isEmpty()) {
+                topLanguage = sortedList.getFirst();
+            }
+        }
+
+        private void computeTopCategory() {
+            List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(categories.entrySet());
+            sortedList.sort(this::compareEntries);
+            if (!sortedList.isEmpty()) {
+                topCategory = sortedList.getFirst();
+            }
+        }
+
+        private void writeFinalReport() {
+            String fileName = "reports.txt";
+            try {
+                File file = new File(fileName);
+                try (PrintWriter writer = new PrintWriter(file)) {
+                    int dupes = getReadArticles().get() - getNumberOfUniqueArticles();
+                    writer.println("duplicates_found - " + dupes);
+                    writer.println("unique_articles - " + getNumberOfUniqueArticles());
+                    if (bestAuthor != null)
+                        writer.println("best_author - " + bestAuthor.getKey() + " " + bestAuthor.getValue().get());
+                    if (topLanguage != null)
+                        writer.println("top_language - " + topLanguage.getKey() + " " + topLanguage.getValue().get());
+                    if (topCategory != null)
+                        writer.println("top_category - " + topCategory.getKey() + " " + topCategory.getValue().get());
+                    if (mostRecentArticle != null)
+                        writer.println("most_recent_article - " + mostRecentArticle.getPublished() + " " + mostRecentArticle.getUrl());
+                    if (topEnglishWord != null)
+                        writer.println("top_keyword_en - " + topEnglishWord.getKey() + " " + topEnglishWord.getValue().get());
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -320,10 +399,9 @@ public class NewsAggregator {
             }
 
             waitAtBarrier();
-            // trec prin articole si incep sa le sortez si sa le adaug in maps
-
             process();
             waitAtBarrier();
+
             generateOutputFromDictionary(organizedCategories);
             generateOutputFromDictionary(organizedLanguages);
 
@@ -336,7 +414,23 @@ public class NewsAggregator {
                 generateWordCounterReport();
             }
 
+            if (id == 0) {
+                computeBestAuthor();
+            }
 
+            if (1 % numberOfThreads == id) {
+                computeTopLanguage();
+            }
+
+            if (2 % numberOfThreads == id) {
+                computeTopCategory();
+            }
+
+            waitAtBarrier();
+
+            if (id == 0) {
+                writeFinalReport();
+            }
         }
     }
 }

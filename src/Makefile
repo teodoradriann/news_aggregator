@@ -1,11 +1,12 @@
-.PHONY: run clean build
+.PHONY: build run clean
+
+CP = .:libs/*
 
 build:
-	mvn -f pom.xml clean package
+	javac -cp "$(CP)" *.java
 
 run:
-	mvn -f pom.xml exec:java -Dexec.mainClass="Main" -Dexec.args="4 /Users/adrian/Documents/facultate/an3/apd/tema1/checker/input/tests/test_1/articles.txt /Users/adrian/Documents/facultate/an3/apd/tema1/checker/input/tests/test_1/inputs.txt"
+	java -cp "$(CP)" Tema1 $(ARGS)
 
 clean:
-	rm *.txt && \
-	mvn -f pom.xml clean
+	rm -f *.class *.txt

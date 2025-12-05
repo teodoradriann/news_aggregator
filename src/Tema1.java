@@ -4,18 +4,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
-public class Main {
-
-    private static void printConfigurationMap(String title, Map<String, Boolean> map) {
-        System.out.println("--- " + title.toUpperCase() + " (" + map.size() + " entries) ---");
-
-        int count = 0;
-        for (String key : map.keySet()) {
-            System.out.println("  [" + (++count) + "] " + key);
-        }
-        System.out.println("---------------------------------------------");
-    }
-
+public class Tema1 {
     private static <T> T loadFromFile(
         String path,
         Supplier<T> factory,
@@ -28,10 +17,9 @@ public class Main {
             String line;
             while ((line = br.readLine()) != null) {
                 String trimmedLine = line.trim();
-                System.out.println(trimmedLine);
 
-                String fileName = new File(trimmedLine).getName();
-                String fullPath;
+                 String fileName = new File(trimmedLine).getName();
+                 String fullPath;
 
                 if (trimmedLine.endsWith(".json")) {
                     fullPath = "../checker/input/articles/" + fileName;
@@ -72,10 +60,6 @@ public class Main {
         String pathToArticles = args[1];
         String pathToAdditionalFile = args[2];
 
-        System.out.println("NUMBER OF THREADS: " + numberOfThreads);
-        System.out.println("ARTICLES PATH: " + pathToArticles);
-        System.out.println("ADDITIONAL INFO PATH: " + pathToAdditionalFile);
-
         ConcurrentLinkedQueue<String> fileQueue = loadFromFile(
             pathToArticles,
             ConcurrentLinkedQueue::new,
@@ -91,9 +75,6 @@ public class Main {
         );
 
         if (configPaths == null || configPaths.size() < 3) return;
-
-        System.out.println("AICI" + configPaths.get(0));
-
 
         Map<String, Boolean> languagesMap = loadFromFile(
             configPaths.get(0),
@@ -136,12 +117,6 @@ public class Main {
 
         System.out.println("All read.");
 
-
-//        printConfigurationMap("Permitted Languages", permittedLanguages);
-//        printConfigurationMap("Interest Categories", interestCategories);
-//        printConfigurationMap("English Words", englishWords);
-
-
         NewsAggregator news = new NewsAggregator(
             numberOfThreads,
             fileQueue,
@@ -151,9 +126,16 @@ public class Main {
         );
 
         news.startThreads();
-        System.out.println("TOTAL ARTICLES: " + news.getReadArticles());
-        System.out.println("UNIQUE ARTICLES: " + news.getNumberOfUniqueArticles());
-        int dupes = news.getReadArticles().get() - news.getNumberOfUniqueArticles();
-        System.out.println("DUPLICATE ARTICLES: " + dupes);
+        System.gc();
+
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+
+        long usedMemoryMB = usedMemory / (1024 * 1024);
+
+        System.out.println("--------------------------------------------------");
+        System.out.println("Used Memory (Heap): " + usedMemoryMB + " MB");
+        System.out.println("Total Allocated Memory: " + runtime.totalMemory() / (1024 * 1024) + " MB");
+        System.out.println("Max Available Memory: " + runtime.maxMemory() / (1024 * 1024) + " MB");
     }
 }
