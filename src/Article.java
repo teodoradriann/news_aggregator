@@ -1,8 +1,9 @@
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-public class Article {
+public class Article implements Comparable<Article> {
 
     private String uuid;
     private String title;
@@ -105,4 +106,14 @@ public class Article {
                 "\n}";
     }
 
+    @Override
+    public int compareTo(Article other) {
+        int dateComparison = other.published.compareTo(this.getPublished());
+
+        if (dateComparison == 0) {
+            return this.uuid.compareTo(other.getUuid());
+        }
+
+        return dateComparison;
+    }
 }

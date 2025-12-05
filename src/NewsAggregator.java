@@ -21,6 +21,7 @@ public class NewsAggregator {
     private Map<String, Boolean> interestCategories;
     private Map<String, Boolean> englishWords;
     private CyclicBarrier barrier;
+    Article mostRecentArticle;
 
     ObjectMapper objMapper = new ObjectMapper();
 
@@ -65,6 +66,8 @@ public class NewsAggregator {
 
     private final ConcurrentHashMap<String, List<String>> organizedCategories = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, List<String>> organizedLanguages = new ConcurrentHashMap<>();
+
+    private final ConcurrentHashMap<String, AtomicInteger> englishWordsCount = new ConcurrentHashMap<>();
 
 
     void startThreads() {
@@ -153,7 +156,7 @@ public class NewsAggregator {
         }
 
         // procesarea articolelor in paralel
-        private void process(int id) {
+        private void process() {
             int size = uniqueArticles.size();
             int N = numberOfThreads;
 
@@ -165,13 +168,9 @@ public class NewsAggregator {
                 Article article = uniqueArticles.get(i);
                 String UUID = article.getUuid();
 
-                if (UUID.equals("3d86792936ddca8764bcce85d6c618ad646c4c69")) {
-                    System.out.println(article);
-                }
-
                 // procesez categoriile
                 for (String category: article.getCategories()) {
-                    if (interestCategories.get(category).equals(true)) {
+                    if (interestCategories.containsKey(category)) {
                         List<String> uuidList = organizedCategories.computeIfAbsent(
                                 category,
                                 k -> Collections.synchronizedList(new ArrayList<>())
@@ -182,11 +181,32 @@ public class NewsAggregator {
 
                 // procesez limbile
                 String language = article.getLanguage();
-                List<String> uuidList = organizedLanguages.computeIfAbsent(
-                        language,
-                        k -> Collections.synchronizedList(new ArrayList<>())
-                );
-                uuidList.add(UUID);
+                if (permittedLanguages.containsKey(language)) {
+                    List<String> uuidList = organizedLanguages.computeIfAbsent(
+                            language,
+                            k -> Collections.synchronizedList(new ArrayList<>())
+                    );
+                    uuidList.add(UUID);
+                }
+
+                if (language.equals("english")) {
+                    String text = article.getText();
+                    text = text.toLowerCase();
+                    String[] words = text.split("\\s+");
+                    Set<String> wordsFoundInThisArticle = new HashSet<>();
+
+                    for (String word: words) {
+                        String cleanedWord = word.replaceAll("[^a-z]", "");
+                        if (!cleanedWord.isEmpty() && !englishWords.containsKey(cleanedWord)) {
+                            if (wordsFoundInThisArticle.add(cleanedWord)) {
+                                englishWordsCount.computeIfAbsent(
+                                        cleanedWord,
+                                        k -> new AtomicInteger(0)
+                                ).incrementAndGet();
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -195,32 +215,83 @@ public class NewsAggregator {
         }
 
         private void generateOutputFromDictionary(ConcurrentHashMap<String, List<String>> map) {
-            if (id == 0) {
-                // generez pt categorii
-                for (Map.Entry<String, List<String>> entry: map.entrySet()) {
-                    String categoryName = parseCategory(entry.getKey());
-                    categoryName += ".txt";
-                    try {
-                        File newFile = new File(categoryName);
-                        if (newFile.createNewFile()) {
-                            System.out.println("File created: " + newFile.getName());
-                        } else {
-                            System.out.println("File already exists.");
-                        }
-                        List<String> uuidList = entry.getValue();
-                        Collections.sort(uuidList);
+            List<String> keys = new ArrayList<>(map.keySet());
+            int size = keys.size();
+            int N = numberOfThreads;
 
-                        try (PrintWriter writer = new PrintWriter(newFile)) {
-                            for (String uuid : uuidList) {
-                                writer.println(uuid);
-                            }
-                        } } catch (IOException e) {
-                            e.printStackTrace();
+            int start = size * id / N;
+            int end = Math.min(size * (id + 1) / N, size);
+
+            for (int i = start; i < end; i++) {
+                String key = keys.get(i);
+                List<String> uuidList = map.get(key);
+                String fileName = parseCategory(key) + ".txt";
+                Collections.sort(uuidList);
+                try {
+                    File newFile = new File(fileName);
+                    try (PrintWriter writer = new PrintWriter(newFile)) {
+                        for (String uuid: uuidList) {
+                            writer.println(uuid);
+                        }
                     }
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
             }
         }
 
+        private void generateAllArticleOutput() {
+            List<Article> allArticles = new ArrayList<>(uniqueArticles);
+            Collections.sort(allArticles);
+            // obtin cel mai recent articol
+            int last_article_index = allArticles.size() - 1;
+            while (last_article_index >= 1 && allArticles.get(last_article_index).getPublished().equals(
+                    allArticles.get(last_article_index - 1).getPublished())) {
+                last_article_index--;
+            }
+
+            if (last_article_index >= 0) {
+                mostRecentArticle = allArticles.get(last_article_index);
+            }
+
+            try {
+                File file = new File("all_articles.txt");
+                try (PrintWriter writer = new PrintWriter(file)) {
+                    for (Article article : allArticles) {
+                        writer.println(article.getUuid() + " " + article.getPublished());
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        private void generateWordCounterReport() {
+            String fileName = "keywords_count.txt";
+
+            List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(englishWordsCount.entrySet());
+            Collections.sort(sortedList, (entryA, entryB) -> {
+                int count1 = entryA.getValue().get();
+                int count2 = entryB.getValue().get();
+
+                if (count1 != count2) {
+                    return Integer.compare(count2, count1);
+                }
+
+                return entryA.getKey().compareTo(entryB.getKey());
+            });
+
+            try {
+                File file = new File(fileName);
+                try (PrintWriter writer = new PrintWriter(file)) {
+                    for (Map.Entry<String, AtomicInteger> entry : sortedList) {
+                        writer.println(entry.getKey() + " " + entry.getValue().get());
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
 
         @Override
         public void run() {
@@ -251,10 +322,21 @@ public class NewsAggregator {
             waitAtBarrier();
             // trec prin articole si incep sa le sortez si sa le adaug in maps
 
-            process(id);
+            process();
             waitAtBarrier();
             generateOutputFromDictionary(organizedCategories);
             generateOutputFromDictionary(organizedLanguages);
+
+            // pentru ca trebuie sa sortez o singura lista voi face generarea si sortarea pe 1 singur thread
+            if (id == 0) {
+                generateAllArticleOutput();
+            }
+
+            if (id == numberOfThreads - 1) {
+                generateWordCounterReport();
+            }
+
+
         }
     }
 }
