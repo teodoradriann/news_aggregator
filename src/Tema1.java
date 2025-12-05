@@ -115,8 +115,6 @@ public class Tema1 {
             englishWordsMap
         );
 
-        System.out.println("All read.");
-
         NewsAggregator news = new NewsAggregator(
             numberOfThreads,
             fileQueue,
@@ -126,16 +124,5 @@ public class Tema1 {
         );
 
         news.startThreads();
-        System.gc();
-
-        Runtime runtime = Runtime.getRuntime();
-        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
-
-        long usedMemoryMB = usedMemory / (1024 * 1024);
-
-        System.out.println("--------------------------------------------------");
-        System.out.println("Used Memory (Heap): " + usedMemoryMB + " MB");
-        System.out.println("Total Allocated Memory: " + runtime.totalMemory() / (1024 * 1024) + " MB");
-        System.out.println("Max Available Memory: " + runtime.maxMemory() / (1024 * 1024) + " MB");
     }
 }

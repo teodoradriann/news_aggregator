@@ -70,9 +70,12 @@ public class NewsAggregator {
     private final ConcurrentHashMap<String, AtomicInteger> categories = new ConcurrentHashMap<>();
 
     private Map.Entry<String, AtomicInteger> topEnglishWord;
-    private Map.Entry<String, AtomicInteger> bestAuthor;
+    private Map.Entry<String, AtomicInteger> topAuthor;
     private Map.Entry<String, AtomicInteger> topLanguage;
     private Map.Entry<String, AtomicInteger> topCategory;
+
+
+    private final ConcurrentLinkedQueue<Runnable> finalTasksQueue = new ConcurrentLinkedQueue<>();
 
 
     void startThreads() {
@@ -267,15 +270,6 @@ public class NewsAggregator {
             List<Article> allArticles = new ArrayList<>(uniqueArticles);
             Collections.sort(allArticles);
             // obtin cel mai recent articol
-//            int last_article_index = allArticles.size() - 1;
-//            while (last_article_index >= 1 && allArticles.get(last_article_index).getPublished().equals(
-//                    allArticles.get(last_article_index - 1).getPublished())) {
-//                last_article_index--;
-//            }
-//
-//            if (last_article_index >= 0) {
-//                mostRecentArticle = allArticles.get(last_article_index);
-//            }
             mostRecentArticle = allArticles.getFirst();
 
             try {
@@ -324,28 +318,14 @@ public class NewsAggregator {
             }
         }
 
-        private void computeBestAuthor() {
-            List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(authors.entrySet());
+        private Map.Entry<String, AtomicInteger> computeBest(ConcurrentHashMap<String, AtomicInteger> map) {
+            List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(map.entrySet());
             sortedList.sort(this::compareEntries);
-            if (!sortedList.isEmpty()) {
-                bestAuthor = sortedList.getFirst();
-            }
-        }
 
-        private void computeTopLanguage() {
-            List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(languages.entrySet());
-            sortedList.sort(this::compareEntries);
             if (!sortedList.isEmpty()) {
-                topLanguage = sortedList.getFirst();
+                return sortedList.getFirst();
             }
-        }
-
-        private void computeTopCategory() {
-            List<Map.Entry<String, AtomicInteger>> sortedList = new ArrayList<>(categories.entrySet());
-            sortedList.sort(this::compareEntries);
-            if (!sortedList.isEmpty()) {
-                topCategory = sortedList.getFirst();
-            }
+            return null;
         }
 
         private void writeFinalReport() {
@@ -356,8 +336,8 @@ public class NewsAggregator {
                     int dupes = getReadArticles().get() - getNumberOfUniqueArticles();
                     writer.println("duplicates_found - " + dupes);
                     writer.println("unique_articles - " + getNumberOfUniqueArticles());
-                    if (bestAuthor != null)
-                        writer.println("best_author - " + bestAuthor.getKey() + " " + bestAuthor.getValue().get());
+                    if (topAuthor != null)
+                        writer.println("best_author - " + topAuthor.getKey() + " " + topAuthor.getValue().get());
                     if (topLanguage != null)
                         writer.println("top_language - " + topLanguage.getKey() + " " + topLanguage.getValue().get());
                     if (topCategory != null)
@@ -405,25 +385,19 @@ public class NewsAggregator {
             generateOutputFromDictionary(organizedCategories);
             generateOutputFromDictionary(organizedLanguages);
 
-            // pentru ca trebuie sa sortez o singura lista voi face generarea si sortarea pe 1 singur thread
             if (id == 0) {
-                generateAllArticleOutput();
+                finalTasksQueue.add(this::generateAllArticleOutput);
+                finalTasksQueue.add(this::generateWordCounterReport);
+                finalTasksQueue.add(() -> topAuthor = computeBest(authors));
+                finalTasksQueue.add(() -> topLanguage = computeBest(languages));
+                finalTasksQueue.add(() -> topCategory = computeBest(categories));
             }
 
-            if (id == numberOfThreads - 1) {
-                generateWordCounterReport();
-            }
+            waitAtBarrier();
 
-            if (id == 0) {
-                computeBestAuthor();
-            }
-
-            if (1 % numberOfThreads == id) {
-                computeTopLanguage();
-            }
-
-            if (2 % numberOfThreads == id) {
-                computeTopCategory();
+            Runnable task;
+            while ((task = finalTasksQueue.poll()) != null) {
+                task.run();
             }
 
             waitAtBarrier();
